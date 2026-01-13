@@ -60,7 +60,7 @@ export function Sidebar() {
         </div>
         {!collapsed && (
           <div className="animate-fade-in">
-            <h1 className="font-bold text-lg text-sidebar-foreground tracking-tight">NexusAI</h1>
+            <h1 className="font-bold text-lg text-sidebar-foreground tracking-tight">Nishat AI</h1>
             <p className="text-xs text-muted-foreground">Enterprise Dashboard</p>
           </div>
         )}
