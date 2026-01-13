@@ -115,7 +115,7 @@ export default function Dashboard() {
     <DashboardLayout>
       <div className="animate-fade-in">
         <PageHeader
-          title={`${t('welcome')}, Mukitu 👋`}
+          title={`${t('welcome')}, Nishat Ai`}
           description="Here's what's happening with your AI-powered workspace today."
         />
 
