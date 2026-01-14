@@ -21,7 +21,6 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  model?: 'gemini';
   alternativeResponse?: string;
 }
 
@@ -31,10 +30,6 @@ const suggestedPrompts = [
   'What are the best practices for API design?',
   'Help me optimize my React application performance',
 ];
-
-// === Google AI Studio API Config ===
-const API_KEY = 'AIzaSyDadfMeWPhlp-y3g3I5KFbd3y_0OjZPW34';
-const MODEL_NAME = 'gemini-1.5'; // অথবা তোমার model name
 
 export default function AIAssistant() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -53,30 +48,31 @@ export default function AIAssistant() {
     scrollToBottom();
   }, [messages]);
 
-  // === Send message to Google AI Studio API ===
-  const sendToGoogleAI = async (messages: { role: string; content: string }[]) => {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta2/models/${MODEL_NAME}:generateMessage?key=${API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: {
-            messages: messages,
-          },
-          temperature: 0.7,
-        }),
-      }
-    );
+  // Hugging Face API call
+  const sendAIMessage = async (userMessage: string) => {
+    const API_URL = 'https://api-inference.huggingface.co/models/allura-forge/Llama-3.3-8B-Instruct';
+    const TOKEN = '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'; // তোমার Fine-grained token
 
-    if (!response.ok) {
-      throw new Error('Failed to fetch AI response');
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        inputs: userMessage,
+        parameters: { max_new_tokens: 250 },
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error('Failed to get AI response');
     }
 
-    const data = await response.json();
-    const aiText = data?.candidates?.[0]?.content || 'No response';
-    const altText = data?.candidates?.[1]?.content; // optional alternative
-    return { content: aiText, alternativeContent: altText, model: 'gemini' as const };
+    const data = await res.json();
+    // Hugging Face এর output format অনুযায়ী message content
+    const text = Array.isArray(data) && data[0]?.generated_text ? data[0].generated_text : '';
+    return text;
   };
 
   const handleSend = async () => {
@@ -94,27 +90,20 @@ export default function AIAssistant() {
     setIsLoading(true);
 
     try {
-      // Prepare message history for AI
-      const apiMessages = [
-        ...messages.map((m) => ({ role: m.role, content: m.content })),
-        { role: 'user', content: userMessage.content },
-      ];
-
-      const response = await sendToGoogleAI(apiMessages);
+      const responseText = await sendAIMessage(userMessage.content);
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: response.content,
+        content: responseText,
         timestamp: new Date(),
-        model: response.model,
-        alternativeResponse: response.alternativeContent,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {
-      console.error(error);
-      toast.error('Failed to get AI response');
+      toast.error('Failed to get AI response', {
+        description: 'Check your Hugging Face token and model',
+      });
     } finally {
       setIsLoading(false);
     }
@@ -136,7 +125,7 @@ export default function AIAssistant() {
 
   const handleVoiceInput = () => {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      toast.error('Voice input not supported');
+      toast.error('Voice input not supported', { description: 'Your browser does not support speech recognition' });
       return;
     }
 
@@ -148,7 +137,7 @@ export default function AIAssistant() {
     setIsListening(true);
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
-    
+
     recognition.continuous = false;
     recognition.interimResults = false;
     recognition.lang = 'en-US';
@@ -177,7 +166,7 @@ export default function AIAssistant() {
       <div className="animate-fade-in h-[calc(100vh-8rem)] flex flex-col">
         <PageHeader
           title="AI Personal Assistant"
-          description="Powered by Google AI Studio (Gemini)"
+          description="Powered by Hugging Face Llama-3.3-8B-Instruct"
           badge="AI"
         />
 
@@ -209,73 +198,43 @@ export default function AIAssistant() {
               messages.map((message) => (
                 <div
                   key={message.id}
-                  className={cn(
-                    'flex gap-4 animate-slide-up',
-                    message.role === 'user' ? 'flex-row-reverse' : ''
-                  )}
+                  className={cn('flex gap-4 animate-slide-up', message.role === 'user' ? 'flex-row-reverse' : '')}
                 >
                   <div
                     className={cn(
                       'w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
-                      message.role === 'user'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted'
+                      message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
                     )}
                   >
-                    {message.role === 'user' ? (
-                      <User className="w-5 h-5" />
-                    ) : (
-                      <Bot className="w-5 h-5" />
-                    )}
+                    {message.role === 'user' ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
                   </div>
-                  <div
-                    className={cn(
-                      'flex-1 max-w-2xl',
-                      message.role === 'user' ? 'text-right' : ''
-                    )}
-                  >
+                  <div className={cn('flex-1 max-w-2xl', message.role === 'user' ? 'text-right' : '')}>
                     <div
                       className={cn(
                         'inline-block p-4 rounded-xl',
-                        message.role === 'user'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted'
+                        message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
                       )}
                     >
-                      <p className="whitespace-pre-wrap text-left">
-                        {showAlternative[message.id] && message.alternativeResponse
-                          ? message.alternativeResponse
-                          : message.content}
-                      </p>
+                      <p className="whitespace-pre-wrap text-left">{message.content}</p>
                     </div>
-                    {message.role === 'assistant' && (
+                    {message.role === 'assistant' && message.alternativeResponse && (
                       <div className="flex items-center gap-2 mt-2">
-                        <span className="text-xs text-muted-foreground">Gemini</span>
-                        {message.alternativeResponse && (
-                          <button
-                            onClick={() => toggleAlternative(message.id)}
-                            className="flex items-center gap-1 text-xs text-primary hover:underline"
-                          >
-                            {showAlternative[message.id] ? (
-                              <ToggleRight className="w-4 h-4" />
-                            ) : (
-                              <ToggleLeft className="w-4 h-4" />
-                            )}
-                            {showAlternative[message.id] ? 'Show primary' : 'View alternative'}
-                          </button>
-                        )}
                         <button
-                          onClick={() => handleCopy(message.content, message.id)}
-                          className="p-1 hover:bg-muted rounded"
+                          onClick={() => toggleAlternative(message.id)}
+                          className="flex items-center gap-1 text-xs text-primary hover:underline"
                         >
-                          {copiedId === message.id ? (
-                            <Check className="w-4 h-4 text-success" />
+                          {showAlternative[message.id] ? (
+                            <ToggleRight className="w-4 h-4" />
                           ) : (
-                            <Copy className="w-4 h-4 text-muted-foreground" />
+                            <ToggleLeft className="w-4 h-4" />
                           )}
+                          {showAlternative[message.id] ? 'Show primary' : 'View alternative'}
                         </button>
                       </div>
                     )}
+                    <button onClick={() => handleCopy(message.content, message.id)} className="p-1 hover:bg-muted rounded mt-1">
+                      {copiedId === message.id ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4 text-muted-foreground" />}
+                    </button>
                   </div>
                 </div>
               ))
@@ -289,14 +248,8 @@ export default function AIAssistant() {
                   <div className="inline-block p-4 rounded-xl bg-muted">
                     <div className="flex gap-1">
                       <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" />
-                      <span
-                        className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
-                        style={{ animationDelay: '0.2s' }}
-                      />
-                      <span
-                        className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
-                        style={{ animationDelay: '0.4s' }}
-                      />
+                      <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                      <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
                     </div>
                   </div>
                 </div>
@@ -310,10 +263,7 @@ export default function AIAssistant() {
             <div className="flex items-end gap-3">
               <button
                 onClick={handleVoiceInput}
-                className={cn(
-                  'btn-secondary p-3',
-                  isListening && 'bg-primary text-primary-foreground'
-                )}
+                className={cn('btn-secondary p-3', isListening && 'bg-primary text-primary-foreground')}
               >
                 {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
               </button>
@@ -332,16 +282,12 @@ export default function AIAssistant() {
                   rows={1}
                 />
               </div>
-              <button
-                onClick={handleSend}
-                disabled={!input.trim() || isLoading}
-                className="btn-primary p-3 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
+              <button onClick={handleSend} disabled={!input.trim() || isLoading} className="btn-primary p-3 disabled:opacity-50 disabled:cursor-not-allowed">
                 <Send className="w-5 h-5" />
               </button>
             </div>
             <p className="text-xs text-muted-foreground text-center mt-3">
-              AI responses are generated via Google AI Studio API.
+              AI responses are generated via Hugging Face API. Your data stays local.
             </p>
           </div>
         </div>
