@@ -1,9 +1,19 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, Copy, Check, Mic, MicOff } from 'lucide-react';
+import {
+  Send,
+  Bot,
+  User,
+  Sparkles,
+  Copy,
+  Check,
+  Mic,
+  MicOff,
+  ToggleLeft,
+  ToggleRight,
+} from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { cn } from '@/lib/utils';
-import { sendAIMessage, AIMessage } from '@/services/n8nService';
 import { toast } from 'sonner';
 
 interface Message {
@@ -12,6 +22,7 @@ interface Message {
   content: string;
   timestamp: Date;
   model?: 'gemini';
+  alternativeResponse?: string;
 }
 
 const suggestedPrompts = [
@@ -21,10 +32,15 @@ const suggestedPrompts = [
   'Help me optimize my React application performance',
 ];
 
+// === Google AI Studio API Config ===
+const API_KEY = 'AIzaSyDadfMeWPhlp-y3g3I5KFbd3y_0OjZPW34';
+const MODEL_NAME = 'gemini-1.5'; // অথবা তোমার model name
+
 export default function AIAssistant() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showAlternative, setShowAlternative] = useState<{ [key: string]: boolean }>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -36,6 +52,32 @@ export default function AIAssistant() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // === Send message to Google AI Studio API ===
+  const sendToGoogleAI = async (messages: { role: string; content: string }[]) => {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta2/models/${MODEL_NAME}:generateMessage?key=${API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: {
+            messages: messages,
+          },
+          temperature: 0.7,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch AI response');
+    }
+
+    const data = await response.json();
+    const aiText = data?.candidates?.[0]?.content || 'No response';
+    const altText = data?.candidates?.[1]?.content; // optional alternative
+    return { content: aiText, alternativeContent: altText, model: 'gemini' as const };
+  };
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
@@ -52,26 +94,27 @@ export default function AIAssistant() {
     setIsLoading(true);
 
     try {
-      const apiMessages: AIMessage[] = [
-        ...messages.map(m => ({ role: m.role, content: m.content })),
+      // Prepare message history for AI
+      const apiMessages = [
+        ...messages.map((m) => ({ role: m.role, content: m.content })),
         { role: 'user', content: userMessage.content },
       ];
 
-      const response = await sendAIMessage(apiMessages);
+      const response = await sendToGoogleAI(apiMessages);
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: response.content,
         timestamp: new Date(),
-        model: 'gemini',
+        model: response.model,
+        alternativeResponse: response.alternativeContent,
       };
-      
+
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {
-      toast.error('Failed to get AI response', {
-        description: 'Please check your n8n webhook configuration in Settings',
-      });
+      console.error(error);
+      toast.error('Failed to get AI response');
     } finally {
       setIsLoading(false);
     }
@@ -84,11 +127,16 @@ export default function AIAssistant() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const toggleAlternative = (messageId: string) => {
+    setShowAlternative((prev) => ({
+      ...prev,
+      [messageId]: !prev[messageId],
+    }));
+  };
+
   const handleVoiceInput = () => {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      toast.error('Voice input not supported', {
-        description: 'Your browser does not support speech recognition',
-      });
+      toast.error('Voice input not supported');
       return;
     }
 
@@ -129,7 +177,7 @@ export default function AIAssistant() {
       <div className="animate-fade-in h-[calc(100vh-8rem)] flex flex-col">
         <PageHeader
           title="AI Personal Assistant"
-          description="Powered by Gemini with intelligent responses"
+          description="Powered by Google AI Studio (Gemini)"
           badge="AI"
         />
 
@@ -194,11 +242,28 @@ export default function AIAssistant() {
                           : 'bg-muted'
                       )}
                     >
-                      <p className="whitespace-pre-wrap text-left">{message.content}</p>
+                      <p className="whitespace-pre-wrap text-left">
+                        {showAlternative[message.id] && message.alternativeResponse
+                          ? message.alternativeResponse
+                          : message.content}
+                      </p>
                     </div>
                     {message.role === 'assistant' && (
                       <div className="flex items-center gap-2 mt-2">
                         <span className="text-xs text-muted-foreground">Gemini</span>
+                        {message.alternativeResponse && (
+                          <button
+                            onClick={() => toggleAlternative(message.id)}
+                            className="flex items-center gap-1 text-xs text-primary hover:underline"
+                          >
+                            {showAlternative[message.id] ? (
+                              <ToggleRight className="w-4 h-4" />
+                            ) : (
+                              <ToggleLeft className="w-4 h-4" />
+                            )}
+                            {showAlternative[message.id] ? 'Show primary' : 'View alternative'}
+                          </button>
+                        )}
                         <button
                           onClick={() => handleCopy(message.content, message.id)}
                           className="p-1 hover:bg-muted rounded"
@@ -276,7 +341,7 @@ export default function AIAssistant() {
               </button>
             </div>
             <p className="text-xs text-muted-foreground text-center mt-3">
-              AI responses are generated via n8n Gemini webhook integration. Your data stays local.
+              AI responses are generated via Google AI Studio API.
             </p>
           </div>
         </div>
